@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* === EstimateAI Global Styles === */
+
+body {
+  background: linear-gradient(180deg, #0D1B2A 0%, #0A1520 100%);
+  color: #F7F4EE;
+  font-family: var(--font-inter), sans-serif;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-playfair), serif;
+  letter-spacing: -0.02em;
+}
+
+/* --- Accent Text --- */
+.subtitle {
+  color: #C9CFD8;
+}
+
+/* --- Builder-friendly badges --- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 9999px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+  color: #EDEDED;
+  background: rgba(255,255,255,0.06);
+  backdrop-filter: blur(6px);
+  transition: all 0.25s ease;
+}
+
+.chip:hover {
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+}
+
+/* --- Lighter translucent cards --- */
+.card-pro {
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(255,255,255,0.20);
+  border-radius: 1.25rem;
+  box-shadow: 0 8px 25px rgba(0,0,0,0.25);
+  transition: all 0.3s ease;
+}
+
+.card-pro:hover {
+  background: rgba(255,255,255,0.15);
+  border-color: rgba(255,255,255,0.35);
+  transform: translateY(-2px);
+}
+
+/* --- Gold primary button --- */
+.btn-gold {
+  background: #E0B400;
+  color: #0B0F14;
+  border-radius: 9999px;
+  padding: 0.75rem 1.2rem;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(224,180,0,0.35);
+  transition: all 0.25s ease;
+}
+
+.btn-gold:hover {
+  background: #FFD84A;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(255,216,74,0.4);
+}
+
+/* --- Dropzone look --- */
+.dropzone {
+  margin-top: 1.25rem;
+  border: 1px dashed rgba(255,255,255,0.25);
+  border-radius: 1rem;
+  background: rgba(255,255,255,0.08);
+  text-align: center;
+  padding: 4rem 1rem;
+  transition: all 0.3s ease;
+}
+
+.dropzone:hover {
+  background: rgba(255,255,255,0.15);
+  border-color: rgba(255,255,255,0.5);
+}
+
+/* --- Footer / utility text --- */
+footer {
+  color: #B0B6BE;
+}
+
+
