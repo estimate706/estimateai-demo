@@ -1,55 +1,70 @@
+// app/api/ask/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
-import { askQuestionAboutPlan } from '@/lib/ai-service';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
 
-export async function POST(request: NextRequest) {
+async function askOpenAI(question: string, context?: string) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('OPENAI_API_KEY is missing');
+
+  const system = `
+You are an estimating assistant. Answer concisely and practically for residential construction.
+If you lack specific numbers from context, state assumptions clearly.
+`;
+
+  const user = `
+Question: ${question}
+
+Context (optional):
+${context ?? '—'}
+`;
+
+  const res = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4.1-mini',
+      temperature: 0.3,
+      input: [
+        { role: 'system', content: [{ type: 'text', text: system }] },
+        { role: 'user', content: [{ type: 'text', text: user }] },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`OpenAI error: ${t}`);
+  }
+
+  const data = await res.json();
+  const text =
+    data?.output?.[0]?.content?.[0]?.text ??
+    data?.content?.[0]?.text ??
+    data?.output_text ??
+    JSON.stringify(data);
+
+  return text;
+}
+
+export async function POST(req: NextRequest) {
   try {
-    const body = await request.json();
-    const { projectId, question } = body;
-
-    if (!projectId || !question) {
-      return NextResponse.json(
-        { error: 'Project ID and question are required' },
-        { status: 400 }
-      );
+    const { question, context } = await req.json();
+    if (!question || typeof question !== 'string') {
+      return NextResponse.json({ error: 'Missing question' }, { status: 400 });
     }
 
-    // Get project with PDF
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-    });
-
-    if (!project || !project.pdfBlobUrl) {
-      return NextResponse.json(
-        { error: 'Project or PDF not found' },
-        { status: 404 }
-      );
-    }
-
-    // Extract base64 from data URL
-    const base64Data = project.pdfBlobUrl.replace(
-      /^data:application\/pdf;base64,/,
-      ''
-    );
-
-    // Ask Claude
-    const answer = await askQuestionAboutPlan(base64Data, question);
-
-    return NextResponse.json({
-      success: true,
-      answer,
-    });
-  } catch (error) {
-    console.error('Ask error:', error);
+    const answer = await askOpenAI(question, context);
+    return NextResponse.json({ ok: true, answer }, { status: 200 });
+  } catch (err: any) {
+    console.error('ask error:', err?.message || err);
     return NextResponse.json(
-      {
-        error: 'Failed to process question',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { error: err?.message || 'Ask endpoint failed' },
       { status: 500 }
     );
   }
 }
+

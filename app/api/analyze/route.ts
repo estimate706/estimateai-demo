@@ -1,85 +1,43 @@
+// app/api/analyze/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
-import { analyzePDFWithClaude } from '@/lib/ai-service';
+import { analyzePdfWithOpenAI } from '@/lib/ai-service';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-export async function POST(request: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
-    const body = await request.json();
-    const { projectId, analysisType = 'detailed' } = body;
+    // Expect multipart/form-data with a "file" field (PDF)
+    const formData = await req.formData();
+    const file = formData.get('file') as unknown as File | null;
 
-    if (!projectId) {
-      return NextResponse.json(
-        { error: 'Project ID is required' },
-        { status: 400 }
-      );
+    if (!file) {
+      return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
+    }
+    if (file.type !== 'application/pdf') {
+      return NextResponse.json({ error: 'File must be a PDF' }, { status: 400 });
     }
 
-    // Get project with PDF
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-    });
+    // Convert to base64
+    const buf = Buffer.from(await file.arrayBuffer());
+    const pdfBase64 = buf.toString('base64');
 
-    if (!project || !project.pdfBlobUrl) {
-      return NextResponse.json(
-        { error: 'Project or PDF not found' },
-        { status: 404 }
-      );
-    }
+    // Analyze via OpenAI-only service
+    const result = await analyzePdfWithOpenAI(pdfBase64);
 
-    // Extract base64 from data URL
-    const base64Data = project.pdfBlobUrl.replace(
-      /^data:application\/pdf;base64,/,
-      ''
-    );
-
-    // Analyze with Claude
-    const analysis = await analyzePDFWithClaude(base64Data, analysisType);
-
-    // Save measurements to database
-    const measurements = [];
-    const m = analysis.measurements;
-    
-    if (m.grossSqFt) measurements.push({ featureType: 'grossSqFt', valueNum: m.grossSqFt, projectId });
-    if (m.firstFloorSqFt) measurements.push({ featureType: 'firstFloorSqFt', valueNum: m.firstFloorSqFt, projectId });
-    if (m.secondFloorSqFt) measurements.push({ featureType: 'secondFloorSqFt', valueNum: m.secondFloorSqFt, projectId });
-    if (m.overallWidthFt) measurements.push({ featureType: 'overallWidthFt', valueNum: m.overallWidthFt, projectId });
-    if (m.overallDepthFt) measurements.push({ featureType: 'overallDepthFt', valueNum: m.overallDepthFt, projectId });
-    if (m.wallHeightFt) measurements.push({ featureType: 'wallHeightFt', valueNum: m.wallHeightFt, projectId });
-    if (m.bedroomCount) measurements.push({ featureType: 'bedroomCount', valueNum: m.bedroomCount, projectId });
-    if (m.bathroomCount) measurements.push({ featureType: 'bathroomCount', valueNum: m.bathroomCount, projectId });
-    if (m.windowCount) measurements.push({ featureType: 'windowCount', valueNum: m.windowCount, projectId });
-    if (m.doorCount) measurements.push({ featureType: 'doorCount', valueNum: m.doorCount, projectId });
-    if (m.garageSize) measurements.push({ featureType: 'garageSize', valueText: m.garageSize, projectId });
-    if (m.roofPitch) measurements.push({ featureType: 'roofPitch', valueText: m.roofPitch, projectId });
-    if (m.foundationType) measurements.push({ featureType: 'foundationType', valueText: m.foundationType, projectId });
-
-    if (measurements.length > 0) {
-      await prisma.aIMeasurement.createMany({
-        data: measurements,
-      });
-    }
-
-    // Update project status
-    await prisma.project.update({
-      where: { id: projectId },
-      data: { status: 'analyzed' },
-    });
-
-    return NextResponse.json({
-      success: true,
-      data: analysis,
-    });
-  } catch (error) {
-    console.error('Analysis error:', error);
+    // Return structured JSON
+    return NextResponse.json({ ok: true, result }, { status: 200 });
+  } catch (err: any) {
+    console.error('analyze error:', err?.message || err);
     return NextResponse.json(
-      {
-        error: 'Failed to analyze PDF',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      },
+      { error: err?.message || 'Analysis failed' },
       { status: 500 }
     );
   }
 }
+
+
+
+
+  
+    
