@@ -1,8 +1,8 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from './db';
 
-// Define the structure for an estimate breakdown
-interface EstimateBreakdown {
+// Shape used in the app for quick math + display
+export interface EstimateBreakdown {
   materials: number;
   labor: number;
   overhead: number;
@@ -10,7 +10,6 @@ interface EstimateBreakdown {
   totalAmount: number;
 }
 
-// This function calculates a basic estimate breakdown
 export function calculateEstimate(
   materials: number,
   labor: number,
@@ -31,32 +30,38 @@ export function calculateEstimate(
   };
 }
 
-// This function saves an estimate record to the database
+/**
+ * Save the estimate in a JSON column only (schema-agnostic).
+ * Your Prisma model should have fields at least:
+ *
+ * model Estimate {
+ *   id            String   @id @default(cuid())
+ *   projectId     String
+ *   breakdownJson Json
+ *   createdAt     DateTime @default(now())
+ * }
+ */
 export async function saveEstimateToDB(
   projectId: string,
   breakdown: EstimateBreakdown
 ) {
   try {
+    const jsonValue = JSON.parse(JSON.stringify(breakdown)) as Prisma.InputJsonValue;
+
     const estimate = await prisma.estimate.create({
       data: {
         projectId,
-        materials: breakdown.materials,
-        labor: breakdown.labor,
-        overhead: breakdown.overhead,
-        profitPct: breakdown.profitPct,
-        totalAmount: breakdown.totalAmount,
-        breakdownJson: JSON.parse(JSON.stringify(breakdown)) as Prisma.InputJsonValue,
+        breakdownJson: jsonValue,
       },
     });
 
     return estimate;
   } catch (error: any) {
-    console.error('Error saving estimate to DB:', error.message || error);
+    console.error('Error saving estimate to DB:', error?.message || error);
     throw new Error('Failed to save estimate to database.');
   }
 }
 
-// This function retrieves an estimate from the database
 export async function getEstimateByProjectId(projectId: string) {
   try {
     const estimate = await prisma.estimate.findFirst({
@@ -64,8 +69,7 @@ export async function getEstimateByProjectId(projectId: string) {
     });
     return estimate;
   } catch (error: any) {
-    console.error('Error fetching estimate:', error.message || error);
+    console.error('Error fetching estimate:', error?.message || error);
     throw new Error('Failed to fetch estimate.');
   }
 }
-
