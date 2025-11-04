@@ -3,68 +3,63 @@ import type { MergedEstimate, TakeoffResult, TakeoffItem } from "@/lib/types";
 import { openaiAnalyzePDF } from "@/lib/providers/openai";
 import { anthropicAnalyzePDF } from "@/lib/providers/anthropic";
 
-// IMPROVED: Category normalization
-const CATEGORY_ALIASES: Record<string, string> = {
-  carpentry: "framing",
-  "wood framing": "framing",
-  "rough carpentry": "framing",
-  roof: "roofing",
-  "exterior cladding": "siding",
-  cladding: "siding",
-  housewrap: "siding",
-  glazing: "windows_doors",
-  openings: "windows_doors",
-  windows: "windows_doors",
-  doors: "windows_doors",
-  "gypsum board": "drywall",
-  gypsum: "drywall",
-  "gyp board": "drywall",
-  "floor covering": "flooring",
-  "floor finish": "flooring",
-  trim: "finishes",
-  paint: "finishes",
-  painting: "finishes",
-  hvac: "mechanical",
-  mech: "mechanical",
-};
+export async function runDualModelTakeoff(pdfBytes: Uint8Array): Promise<MergedEstimate> {
+  // Run both in parallel
+  const [oai, claude] = await Promise.allSettled([
+    openaiAnalyzePDF(pdfBytes),
+    anthropicAnalyzePDF(pdfBytes),
+  ]);
 
-// IMPROVED: Unit normalization
-const UNIT_ALIASES: Record<string, string> = {
-  ea: "ea",
-  each: "ea",
-  piece: "ea",
-  "#": "ea",
-  lf: "lf",
-  "linear feet": "lf",
-  feet: "lf",
-  ft: "lf",
-  sf: "sf",
-  "square feet": "sf",
-  sqft: "sf",
-  sq: "sq",
-  squares: "sq",
-  "roofing square": "sq",
-  cy: "cy",
-  "cubic yards": "cy",
-  yard: "cy",
-  cf: "cf",
-  "cubic feet": "cf",
-  bf: "bf",
-  "board feet": "bf",
-};
+  const oaiRes = oai.status === "fulfilled" ? oai.value : undefined;
+  const claudeRes = claude.status === "fulfilled" ? claude.value : undefined;
 
-function normalizeCategory(cat: string): string {
-  const lower = cat.toLowerCase().trim();
-  return CATEGORY_ALIASES[lower] || lower;
+  if (!oaiRes && !claudeRes) {
+    return {
+      items: [],
+      summary: "Both models failed to analyze the PDF.",
+      confidence: 0,
+      sources: { openai: undefined, anthropic: undefined },
+    };
+  }
+
+  // If only one model succeeded, return its results
+  if (!oaiRes) {
+    return {
+      items: claudeRes!.items,
+      summary: `Claude only: ${claudeRes!.summary}`,
+      confidence: claudeRes!.confidence * 0.85,
+      sources: { openai: undefined, anthropic: claudeRes },
+    };
+  }
+
+  if (!claudeRes) {
+    return {
+      items: oaiRes.items,
+      summary: `OpenAI only: ${oaiRes.summary}`,
+      confidence: oaiRes.confidence * 0.85,
+      sources: { openai: oaiRes, anthropic: undefined },
+    };
+  }
+
+  // Simple fusion - just combine both results
+  const allItems = [...oaiRes.items, ...claudeRes.items];
+
+  // Remove exact duplicates
+  const uniqueItems = allItems.filter((item, index, self) =>
+    index === self.findIndex((t) => (
+      t.category === item.category &&
+      t.description === item.description &&
+      t.unit === item.unit &&
+      Math.abs(t.qty - item.qty) < 0.01
+    ))
+  );
+
+  const avgConfidence = (oaiRes.confidence + claudeRes.confidence) / 2;
+
+  return {
+    items: uniqueItems,
+    summary: `OpenAI: ${oaiRes.summary}\n\nClaude: ${claudeRes.summary}`,
+    confidence: avgConfidence,
+    sources: { openai: oaiRes, anthropic: claudeRes },
+  };
 }
-
-function normalizeUnit(unit: string): string {
-  const lower = unit.toLowerCase().trim();
-  return UNIT_ALIASES[lower] || lower;
-}
-
-// IMPROVED: String similarity using Jaro-Winkler
-function jaroWinkler(s1: string, s2: string): number {
-  const m = s1.length;
-  const n = s2.length;
-  if (m === 0 && n ===
