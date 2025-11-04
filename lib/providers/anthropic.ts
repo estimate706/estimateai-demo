@@ -1,5 +1,6 @@
 // lib/providers/anthropic.ts
 import type { TakeoffResult, TakeoffItem } from "@/lib/types";
+import { CLAUDE_MODEL } from "@/lib/config";
 
 export async function anthropicAnalyzePDF(pdfBytes: Uint8Array): Promise<TakeoffResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -14,13 +15,11 @@ export async function anthropicAnalyzePDF(pdfBytes: Uint8Array): Promise<Takeoff
   }
 
   try {
-    // Convert PDF bytes to base64 for upload
     const base64Pdf = Buffer.from(pdfBytes).toString("base64");
 
-    // Prompt to ensure JSON-only structured output
-    const systemPrompt = `You are an expert construction estimator. Extract measurable quantities, materials, and components from residential or light-commercial plan sets.
+    const systemPrompt = `You are an expert construction estimator. Extract measurable quantities from architectural plan sets.
 
-Return ONLY this strict JSON structure (no markdown, no prose):
+Return ONLY this JSON (no markdown):
 {
   "items": [
     {
@@ -28,15 +27,16 @@ Return ONLY this strict JSON structure (no markdown, no prose):
       "description": "clear item description",
       "unit": "ea" | "lf" | "sf" | "sq" | "cy" | "cf" | "bf",
       "qty": <number>,
-      "notes": ["sheet reference"],
+      "notes": ["sheet ref"],
       "confidence": <0-1>
     }
   ],
-  "summary": "concise summary of extraction",
+  "summary": "short summary",
   "confidence": <0-1>
 }`;
 
-    // 🔧 Anthropic API call
+    console.log("[Anthropic] Using model:", CLAUDE_MODEL);
+
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -45,7 +45,7 @@ Return ONLY this strict JSON structure (no markdown, no prose):
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-3-5-sonnet-latest", // ✅ use the official alias
+        model: CLAUDE_MODEL,
         max_tokens: 4096,
         temperature: 0.2,
         system: systemPrompt,
@@ -55,16 +55,9 @@ Return ONLY this strict JSON structure (no markdown, no prose):
             content: [
               {
                 type: "document",
-                source: {
-                  type: "base64",
-                  media_type: "application/pdf",
-                  data: base64Pdf,
-                },
+                source: { type: "base64", media_type: "application/pdf", data: base64Pdf },
               },
-              {
-                type: "text",
-                text: "Analyze this construction plan set and extract all measurable quantities and material takeoffs.",
-              },
+              { type: "text", text: "Analyze and extract ALL measurable quantities." },
             ],
           },
         ],
@@ -78,12 +71,8 @@ Return ONLY this strict JSON structure (no markdown, no prose):
 
     const data: any = await response.json();
     const textContent = data?.content?.find((c: any) => c.type === "text");
+    if (!textContent) throw new Error("No text content in Claude response");
 
-    if (!textContent) {
-      throw new Error("No text content returned by Claude API");
-    }
-
-    // Clean JSON output (strip markdown fences if present)
     let jsonText = textContent.text.trim();
     if (jsonText.startsWith("```")) {
       jsonText = jsonText.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "");
@@ -111,19 +100,20 @@ Return ONLY this strict JSON structure (no markdown, no prose):
     return {
       source: "anthropic",
       items,
-      summary: String(parsed?.summary ?? "Extraction complete."),
+      summary: `Extraction complete (model: ${CLAUDE_MODEL})`,
       confidence: Math.max(0, Math.min(1, Number(parsed?.confidence ?? 0.6))),
     };
   } catch (error) {
     console.error("Claude analysis error:", error);
     return {
       source: "anthropic",
-      summary: `Claude error: ${error instanceof Error ? error.message : "Unknown error"}`,
+      summary: `Claude error: ${error instanceof Error ? error.message : "Unknown error"} (model: ${CLAUDE_MODEL})`,
       confidence: 0,
       items: [],
     };
   }
 }
+
 
 
 
