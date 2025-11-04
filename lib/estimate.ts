@@ -1,10 +1,12 @@
 // lib/estimate.ts
-import type { MergedEstimate, TakeoffResult, TakeoffItem } from "@/lib/types";
+import type { MergedEstimate, TakeoffResult } from "@/lib/types";
 import { openaiAnalyzePDF } from "@/lib/providers/openai";
 import { anthropicAnalyzePDF } from "@/lib/providers/anthropic";
 
 export async function runDualModelTakeoff(pdfBytes: Uint8Array): Promise<MergedEstimate> {
-  // Run both in parallel
+  console.log("[Estimate] Starting analysis...");
+  
+  // Run both (but Claude will return empty immediately)
   const [oai, claude] = await Promise.allSettled([
     openaiAnalyzePDF(pdfBytes),
     anthropicAnalyzePDF(pdfBytes),
@@ -13,53 +15,23 @@ export async function runDualModelTakeoff(pdfBytes: Uint8Array): Promise<MergedE
   const oaiRes = oai.status === "fulfilled" ? oai.value : undefined;
   const claudeRes = claude.status === "fulfilled" ? claude.value : undefined;
 
-  if (!oaiRes && !claudeRes) {
+  // If OpenAI failed, we have nothing
+  if (!oaiRes || oaiRes.items.length === 0) {
     return {
       items: [],
-      summary: "Both models failed to analyze the PDF.",
+      summary: "Analysis failed - no results from OpenAI.",
       confidence: 0,
-      sources: { openai: undefined, anthropic: undefined },
+      sources: { openai: oaiRes, anthropic: claudeRes },
     };
   }
 
-  // If only one model succeeded, return its results
-  if (!oaiRes) {
-    return {
-      items: claudeRes!.items,
-      summary: `Claude only: ${claudeRes!.summary}`,
-      confidence: claudeRes!.confidence * 0.85,
-      sources: { openai: undefined, anthropic: claudeRes },
-    };
-  }
-
-  if (!claudeRes) {
-    return {
-      items: oaiRes.items,
-      summary: `OpenAI only: ${oaiRes.summary}`,
-      confidence: oaiRes.confidence * 0.85,
-      sources: { openai: oaiRes, anthropic: undefined },
-    };
-  }
-
-  // Simple fusion - just combine both results
-  const allItems = [...oaiRes.items, ...claudeRes.items];
-
-  // Remove exact duplicates
-  const uniqueItems = allItems.filter((item, index, self) =>
-    index === self.findIndex((t) => (
-      t.category === item.category &&
-      t.description === item.description &&
-      t.unit === item.unit &&
-      Math.abs(t.qty - item.qty) < 0.01
-    ))
-  );
-
-  const avgConfidence = (oaiRes.confidence + claudeRes.confidence) / 2;
+  // Use OpenAI results
+  console.log(`[Estimate] OpenAI returned ${oaiRes.items.length} items`);
 
   return {
-    items: uniqueItems,
-    summary: `OpenAI: ${oaiRes.summary}\n\nClaude: ${claudeRes.summary}`,
-    confidence: avgConfidence,
+    items: oaiRes.items,
+    summary: oaiRes.summary,
+    confidence: oaiRes.confidence,
     sources: { openai: oaiRes, anthropic: claudeRes },
   };
 }
