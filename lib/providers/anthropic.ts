@@ -14,11 +14,13 @@ export async function anthropicAnalyzePDF(pdfBytes: Uint8Array): Promise<Takeoff
   }
 
   try {
+    // Convert PDF bytes to base64 for upload
     const base64Pdf = Buffer.from(pdfBytes).toString("base64");
 
-    const systemPrompt = `You are an expert construction estimator. Extract quantities from plan sets with precision.
+    // Prompt to ensure JSON-only structured output
+    const systemPrompt = `You are an expert construction estimator. Extract measurable quantities, materials, and components from residential or light-commercial plan sets.
 
-Return ONLY this JSON structure (no markdown):
+Return ONLY this strict JSON structure (no markdown, no prose):
 {
   "items": [
     {
@@ -30,10 +32,11 @@ Return ONLY this JSON structure (no markdown):
       "confidence": <0-1>
     }
   ],
-  "summary": "extraction summary",
+  "summary": "concise summary of extraction",
   "confidence": <0-1>
 }`;
 
+    // 🔧 Anthropic API call
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -42,7 +45,7 @@ Return ONLY this JSON structure (no markdown):
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-3-5-sonnet-20240620",  // FIXED MODEL NAME
+        model: "claude-3-5-sonnet-latest", // ✅ use the official alias
         max_tokens: 4096,
         temperature: 0.2,
         system: systemPrompt,
@@ -60,7 +63,7 @@ Return ONLY this JSON structure (no markdown):
               },
               {
                 type: "text",
-                text: "Analyze this plan set and extract ALL measurable quantities.",
+                text: "Analyze this construction plan set and extract all measurable quantities and material takeoffs.",
               },
             ],
           },
@@ -75,11 +78,12 @@ Return ONLY this JSON structure (no markdown):
 
     const data: any = await response.json();
     const textContent = data?.content?.find((c: any) => c.type === "text");
-    
+
     if (!textContent) {
-      throw new Error("No text content in Claude response");
+      throw new Error("No text content returned by Claude API");
     }
 
+    // Clean JSON output (strip markdown fences if present)
     let jsonText = textContent.text.trim();
     if (jsonText.startsWith("```")) {
       jsonText = jsonText.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "");
@@ -120,5 +124,6 @@ Return ONLY this JSON structure (no markdown):
     };
   }
 }
+
 
 
