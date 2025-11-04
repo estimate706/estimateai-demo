@@ -13,6 +13,7 @@ export default function HomePage() {
   const [result, setResult] = useState<any | null>(null);
 
   const openPicker = () => {
+    console.log('Upload button clicked'); // DEBUG
     setMessage('');
     setResult(null);
     setStatus('picking');
@@ -20,9 +21,13 @@ export default function HomePage() {
   };
 
   const handleFiles = async (file?: File) => {
-    if (!file) return;
+    console.log('handleFiles called with:', file); // DEBUG
+    if (!file) {
+      console.log('No file provided');
+      return;
+    }
+    
     if (file.type !== 'application/pdf') {
-      // Some browsers send an empty type; allow by extension as fallback
       const nameOk = /\.pdf$/i.test(file.name);
       if (!nameOk) {
         setStatus('error');
@@ -34,27 +39,32 @@ export default function HomePage() {
     try {
       setStatus('uploading');
       setMessage('Uploading…');
+      console.log('Starting upload...');
 
       const fd = new FormData();
       fd.append('file', file);
 
       setStatus('analyzing');
-      setMessage('Analyzing with AI…');
+      setMessage('Analyzing with AI… This may take 30-60 seconds.');
 
+      console.log('Calling /api/analyze...');
       const res = await fetch('/api/analyze', {
         method: 'POST',
         body: fd,
       });
 
-      // Surface non-2xx immediately
+      console.log('Response status:', res.status);
+
       if (!res.ok) {
         const text = await res.text();
+        console.error('Server error:', text);
         setStatus('error');
-        setMessage(`Server error (${res.status}). ${text || 'Check project logs.'}`);
+        setMessage(`Server error (${res.status}). ${text || 'Check logs.'}`);
         return;
       }
 
       const json = (await res.json()) as AnalyzeResponse;
+      console.log('Response JSON:', json);
 
       if ('ok' in json && json.ok) {
         setStatus('done');
@@ -65,47 +75,52 @@ export default function HomePage() {
         setMessage(json.error || 'Analysis failed.');
       }
     } catch (e: any) {
+      console.error('Catch error:', e);
       setStatus('error');
       setMessage(e?.message || 'Network error.');
     }
   };
 
   const onInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    console.log('Input change event'); // DEBUG
     const file = e.target.files?.[0];
     await handleFiles(file);
     if (inputRef.current) inputRef.current.value = '';
   };
 
   const onDrop = async (e: DragEvent<HTMLDivElement>) => {
+    console.log('Drop event'); // DEBUG
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
     await handleFiles(file);
   };
 
-  const onDragOver = (e: DragEvent<HTMLDivElement>) => e.preventDefault();
+  const onDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  };
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10 space-y-10">
       <header className="text-center space-y-2">
         <h1 className="text-4xl md:text-6xl font-serif">AI Construction Estimator</h1>
-        <p className="text-slate-300">
+        <p className="text-slate-600">
           Upload your plans to get a fast, first-pass takeoff and cost breakdown for materials and labor.
         </p>
       </header>
 
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6">
-        <div className="flex items-center justify-between">
-          <div className="text-slate-300">
+      <section className="rounded-2xl border border-slate-300 bg-white p-6 shadow-lg">
+        <div className="flex items-center justify-between mb-4">
+          <div className="text-slate-700 font-medium">
             {status === 'idle' && 'Ready to upload…'}
             {status === 'picking' && 'Choose a PDF…'}
             {status === 'uploading' && 'Uploading…'}
             {status === 'analyzing' && 'Analyzing with AI…'}
-            {status === 'done' && 'Done.'}
-            {status === 'error' && 'Error.'}
+            {status === 'done' && '✅ Done.'}
+            {status === 'error' && '❌ Error.'}
           </div>
           <button
             onClick={openPicker}
-            className="rounded-full px-5 py-2 font-medium bg-yellow-400 hover:bg-yellow-300 text-black"
+            className="rounded-full px-6 py-3 font-semibold bg-blue-600 hover:bg-blue-700 text-white transition-colors shadow-md"
           >
             Upload PDF
           </button>
@@ -119,28 +134,28 @@ export default function HomePage() {
         </div>
 
         <div
-          className="mt-6 h-64 rounded-xl border border-dashed border-slate-700 bg-slate-900/30 flex items-center justify-center"
+          className="h-64 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 flex items-center justify-center cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-all"
           onDrop={onDrop}
           onDragOver={onDragOver}
-          role="button"
-          aria-label="Drag and drop your construction plans here"
           onClick={openPicker}
         >
           <div className="text-center space-y-2">
-            <div className="text-6xl">☁️</div>
-            <div className="text-slate-300 font-medium">
+            <div className="text-6xl">📄</div>
+            <div className="text-slate-700 font-medium text-lg">
               Drag & drop your construction plans here
             </div>
             <div className="text-slate-500 text-sm">
-              or click anywhere in this box to browse (PDF only)
+              or click anywhere to browse (PDF only)
             </div>
           </div>
         </div>
 
         {message && (
           <div
-            className={`mt-4 text-sm ${
-              status === 'error' ? 'text-red-400' : 'text-slate-300'
+            className={`mt-4 p-4 rounded-lg text-sm font-medium ${
+              status === 'error' 
+                ? 'bg-red-50 text-red-800 border border-red-200' 
+                : 'bg-blue-50 text-blue-800 border border-blue-200'
             }`}
           >
             {message}
@@ -148,7 +163,8 @@ export default function HomePage() {
         )}
 
         {result && (
-          <div className="mt-6 rounded-xl border border-slate-800 bg-slate-900/50 p-4 overflow-auto">
+          <div className="mt-6 rounded-xl border border-slate-300 bg-slate-50 p-4 overflow-auto max-h-96">
+            <h3 className="font-bold text-lg mb-2">Results:</h3>
             <pre className="text-xs whitespace-pre-wrap">
               {JSON.stringify(result, null, 2)}
             </pre>
