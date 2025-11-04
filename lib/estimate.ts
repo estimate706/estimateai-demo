@@ -1,44 +1,70 @@
 // lib/estimate.ts
-import type { MergedEstimate, TakeoffResult } from "@/lib/types";
+import type { MergedEstimate, TakeoffResult, TakeoffItem } from "@/lib/types";
 import { openaiAnalyzePDF } from "@/lib/providers/openai";
 import { anthropicAnalyzePDF } from "@/lib/providers/anthropic";
 
-export async function runDualModelTakeoff(pdfBytes: Uint8Array): Promise<MergedEstimate> {
-  // Run both in parallel
-  const [oai, claude] = await Promise.allSettled([
-    openaiAnalyzePDF(pdfBytes),
-    anthropicAnalyzePDF(pdfBytes),
-  ]);
+// IMPROVED: Category normalization
+const CATEGORY_ALIASES: Record<string, string> = {
+  carpentry: "framing",
+  "wood framing": "framing",
+  "rough carpentry": "framing",
+  roof: "roofing",
+  "exterior cladding": "siding",
+  cladding: "siding",
+  housewrap: "siding",
+  glazing: "windows_doors",
+  openings: "windows_doors",
+  windows: "windows_doors",
+  doors: "windows_doors",
+  "gypsum board": "drywall",
+  gypsum: "drywall",
+  "gyp board": "drywall",
+  "floor covering": "flooring",
+  "floor finish": "flooring",
+  trim: "finishes",
+  paint: "finishes",
+  painting: "finishes",
+  hvac: "mechanical",
+  mech: "mechanical",
+};
 
-  const oaiRes = (oai.status === "fulfilled" ? oai.value : undefined) as TakeoffResult | undefined;
-  const claudeRes = (claude.status === "fulfilled" ? claude.value : undefined) as
-    | TakeoffResult
-    | undefined;
+// IMPROVED: Unit normalization
+const UNIT_ALIASES: Record<string, string> = {
+  ea: "ea",
+  each: "ea",
+  piece: "ea",
+  "#": "ea",
+  lf: "lf",
+  "linear feet": "lf",
+  feet: "lf",
+  ft: "lf",
+  sf: "sf",
+  "square feet": "sf",
+  sqft: "sf",
+  sq: "sq",
+  squares: "sq",
+  "roofing square": "sq",
+  cy: "cy",
+  "cubic yards": "cy",
+  yard: "cy",
+  cf: "cf",
+  "cubic feet": "cf",
+  bf: "bf",
+  "board feet": "bf",
+};
 
-  // Pick primary items from the model that returned more (or default OpenAI)
-  const primary =
-    (oaiRes && claudeRes
-      ? oaiRes.items.length >= claudeRes.items.length
-        ? oaiRes
-        : claudeRes
-      : oaiRes || claudeRes) ?? {
-      source: "openai" as const,
-      items: [],
-      summary: "No model response.",
-      confidence: 0,
-    };
-
-  const summaryParts = [
-    oaiRes ? `OpenAI: ${oaiRes.summary}` : "OpenAI: unavailable",
-    claudeRes ? `Claude: ${claudeRes.summary}` : "Claude: unavailable",
-  ];
-
-  const confidence = Math.max(oaiRes?.confidence ?? 0, claudeRes?.confidence ?? 0);
-
-  return {
-    items: primary.items,
-    summary: summaryParts.join("\n\n"),
-    confidence,
-    sources: { openai: oaiRes, anthropic: claudeRes },
-  };
+function normalizeCategory(cat: string): string {
+  const lower = cat.toLowerCase().trim();
+  return CATEGORY_ALIASES[lower] || lower;
 }
+
+function normalizeUnit(unit: string): string {
+  const lower = unit.toLowerCase().trim();
+  return UNIT_ALIASES[lower] || lower;
+}
+
+// IMPROVED: String similarity using Jaro-Winkler
+function jaroWinkler(s1: string, s2: string): number {
+  const m = s1.length;
+  const n = s2.length;
+  if (m === 0 && n ===
