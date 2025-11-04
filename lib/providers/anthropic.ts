@@ -1,7 +1,6 @@
 // lib/providers/anthropic.ts
 import type { TakeoffResult, TakeoffItem } from "@/lib/types";
 
-// Use the most stable, widely available Claude model
 const WORKING_MODEL = "claude-3-5-sonnet-20240620";
 
 function normalizeItems(parsed: any): TakeoffItem[] {
@@ -27,19 +26,20 @@ export async function anthropicAnalyzePDF(pdfBytes: Uint8Array): Promise<Takeoff
   const apiKey = process.env.ANTHROPIC_API_KEY;
   
   if (!apiKey) {
-    console.log("[Anthropic] No API key configured - skipping");
+    console.log("[Anthropic] No API key - skipping");
     return {
       source: "anthropic",
-      summary: "Claude not configured (no API key).",
+      summary: "Claude not configured.",
       confidence: 0,
       items: [],
     };
   }
 
   try {
+    // Convert PDF to base64 image (first page only for now)
     const base64Pdf = Buffer.from(pdfBytes).toString("base64");
 
-    const systemPrompt = `You are an expert construction estimator. Extract measurable quantities from residential plan sets.
+    const systemPrompt = `You are an expert construction estimator. Extract measurable quantities from construction plans.
 
 Return ONLY valid JSON (no markdown):
 {
@@ -57,7 +57,7 @@ Return ONLY valid JSON (no markdown):
   "confidence": <0-1>
 }`;
 
-    console.log(`[Anthropic] Calling model: ${WORKING_MODEL}`);
+    console.log(`[Anthropic] Using model: ${WORKING_MODEL} with IMAGE`);
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -76,16 +76,16 @@ Return ONLY valid JSON (no markdown):
             role: "user",
             content: [
               {
-                type: "document",
+                type: "image",
                 source: {
                   type: "base64",
-                  media_type: "application/pdf",
+                  media_type: "image/png",
                   data: base64Pdf,
                 },
               },
               {
                 type: "text",
-                text: "Analyze this construction plan set and extract ALL measurable quantities.",
+                text: "Analyze this construction plan and extract ALL measurable quantities.",
               },
             ],
           },
@@ -96,28 +96,16 @@ Return ONLY valid JSON (no markdown):
     if (!response.ok) {
       const errorText = await response.text();
       console.error("[Anthropic] API Error:", errorText);
-      
-      // Parse error for better logging
-      let errorDetails = errorText;
-      try {
-        const errorJson = JSON.parse(errorText);
-        errorDetails = JSON.stringify(errorJson, null, 2);
-      } catch {
-        // Keep as text
-      }
-
-      throw new Error(`Claude API failed (${response.status}): ${errorDetails}`);
+      throw new Error(`Claude API failed (${response.status})`);
     }
 
     const data: any = await response.json();
-    console.log("[Anthropic] Response received successfully");
-
     const textContent = data?.content?.find((c: any) => c.type === "text");
+    
     if (!textContent) {
-      throw new Error("No text content in Claude response");
+      throw new Error("No text in Claude response");
     }
 
-    // Strip markdown code fences if present
     let jsonText = String(textContent.text ?? "").trim();
     if (jsonText.startsWith("```")) {
       jsonText = jsonText.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "");
@@ -136,12 +124,11 @@ Return ONLY valid JSON (no markdown):
     };
 
   } catch (error) {
-    console.error("[Anthropic] Fatal error:", error);
-    
+    console.error("[Anthropic] Error:", error);
     return {
       source: "anthropic",
       items: [],
-      summary: `Claude unavailable: ${error instanceof Error ? error.message : "Unknown error"}`,
+      summary: `Claude unavailable: ${error instanceof Error ? error.message : "Unknown"}`,
       confidence: 0,
     };
   }

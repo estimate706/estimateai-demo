@@ -7,13 +7,13 @@ export async function openaiAnalyzePDF(pdfBytes: Uint8Array): Promise<TakeoffRes
 
   const base64Pdf = Buffer.from(pdfBytes).toString("base64");
 
-  const sys = `You are a professional construction estimator analyzing plan sets.
+  const systemPrompt = `You are a professional construction estimator analyzing plan sets.
 
 CRITICAL RULES:
-1. Return ONLY valid JSON - no markdown, no prose, no code fences
+1. Return ONLY valid JSON - no markdown, no prose
 2. Extract quantities from dimension strings, schedules, and room tags
 3. Always cite the source sheet in notes array
-4. If unsure, estimate conservatively and lower confidence to 0.3-0.5
+4. If unsure, lower confidence to 0.3-0.5
 
 REQUIRED JSON STRUCTURE:
 {
@@ -35,19 +35,18 @@ REQUIRED JSON STRUCTURE:
     model: "gpt-4o-mini",
     temperature: 0.2,
     messages: [
-      { role: "system", content: sys },
+      { role: "system", content: systemPrompt },
       {
         role: "user",
         content: [
           { 
             type: "text", 
-            text: "Analyze this construction plan set and extract ALL measurable quantities." 
+            text: "Analyze this construction plan set PDF and extract ALL measurable quantities." 
           },
           { 
             type: "image_url", 
             image_url: { 
               url: `data:application/pdf;base64,${base64Pdf}`,
-              detail: "high"
             } 
           },
         ],
@@ -55,6 +54,8 @@ REQUIRED JSON STRUCTURE:
     ],
     response_format: { type: "json_object" },
   };
+
+  console.log("[OpenAI] Sending request...");
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -67,7 +68,8 @@ REQUIRED JSON STRUCTURE:
 
   if (!res.ok) {
     const errorText = await res.text();
-    throw new Error(`OpenAI API failed: ${errorText}`);
+    console.error("[OpenAI] API Error:", errorText);
+    throw new Error(`OpenAI API failed (${res.status}): ${errorText}`);
   }
 
   const data: any = await res.json();
@@ -96,6 +98,8 @@ REQUIRED JSON STRUCTURE:
         }))
         .filter((item: TakeoffItem) => item.qty > 0 && item.description)
     : [];
+
+  console.log(`[OpenAI] Extracted ${items.length} items`);
 
   return {
     source: "openai",
