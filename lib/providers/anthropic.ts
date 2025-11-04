@@ -42,7 +42,7 @@ Return ONLY this JSON structure (no markdown):
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
+        model: "claude-3-5-sonnet-20240620",  // FIXED MODEL NAME
         max_tokens: 4096,
         temperature: 0.2,
         system: systemPrompt,
