@@ -1,13 +1,14 @@
 // lib/types.ts
 
-export type Unit = "ea" | "lf" | "sf" | "sq" | "cf";
+export type Unit = "ea" | "lf" | "sf" | "sq" | "cf" | "cy" | "bf";
 
 export type TakeoffItem = {
   category: string;
   description: string;
   unit: Unit;
   qty: number;
-  notes?: string;
+  notes?: string[];  // Changed from string to string[]
+  confidence?: number; // Added confidence field
 };
 
 export type TakeoffResult = {
@@ -25,4 +26,5 @@ export type MergedEstimate = {
     openai?: TakeoffResult;
     anthropic?: TakeoffResult;
   };
+  debug?: any; // Added for debug info
 };
