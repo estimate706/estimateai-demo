@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { CLAUDE_MODEL, OPENAI_MODEL } from "@/lib/config";
+import { CLAUDE_MODEL, OPENAI_MODEL } from "@/lib/config"; // ✅ Correct import path
 
 export const runtime = "nodejs";
 
@@ -11,5 +11,10 @@ export async function GET() {
       anthropic: CLAUDE_MODEL,
       openai: OPENAI_MODEL,
     },
+    env: {
+      hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
+      hasOpenAIKey: !!process.env.OPENAI_API_KEY,
+    },
   });
 }
+
