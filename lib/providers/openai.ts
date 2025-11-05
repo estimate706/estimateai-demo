@@ -1,15 +1,12 @@
 // lib/providers/openai.ts
 import type { TakeoffResult, TakeoffItem } from "@/lib/types";
 
-// Text limiter so we don't overflow model context
 const MAX_CHARS = 120_000;
 
 async function extractTextFromPDF(pdfBytes: Uint8Array): Promise<string> {
-  // dynamic import is safer in Next.js server envs
   const { default: pdfParse } = await import("pdf-parse");
   const buf = Buffer.from(pdfBytes);
   const data = await pdfParse(buf);
-  // Collapse extra whitespace and trim to model-safe length
   return (data.text || "")
     .replace(/\r/g, "")
     .replace(/[ \t]+\n/g, "\n")
@@ -30,11 +27,11 @@ function buildSystemPrompt() {
     `      "unit": "ea" | "lf" | "sf" | "sq" | "cy" | "cf" | "bf",\n` +
     `      "qty": number,\n` +
     `      "notes": ["sheet or detail reference"],\n` +
-    `      "confidence": number  // 0..1\n` +
+    `      "confidence": number\n` +
     `    }\n` +
     `  ],\n` +
-    `  "summary": "one-paragraph summary of major quantities & assumptions",\n` +
-    `  "confidence": number // 0..1 overall\n` +
+    `  "summary": "one-paragraph summary of major quantities",\n` +
+    `  "confidence": number\n` +
     `}\n`
   );
 }
@@ -62,85 +59,80 @@ function extractJSON(text: string): any {
   if (t.startsWith("```")) {
     t = t.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
   }
-  // try fast parse first
   try {
     return JSON.parse(t);
   } catch {}
-  // last resort: find first {...} block
   const start = t.indexOf("{");
   const end = t.lastIndexOf("}");
   if (start >= 0 && end > start) {
-    const candidate = t.slice(start, end + 1);
-    return JSON.parse(candidate);
+    return JSON.parse(t.slice(start, end + 1));
   }
-  throw new Error("Could not parse JSON from model response.");
+  throw new Error("Could not parse JSON from OpenAI response.");
 }
 
 export async function openaiAnalyzePDF(pdfBytes: Uint8Array): Promise<TakeoffResult> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return {
-      source: "openai",
-      summary: "OpenAI not configured; returning placeholder output.",
-      confidence: 0,
-      items: [],
-    };
+    throw new Error("OPENAI_API_KEY not configured");
   }
 
-  try {
-    const text = await extractTextFromPDF(pdfBytes);
-    if (!text) throw new Error("No extractable text found in PDF.");
-
-    const system = buildSystemPrompt();
-
-    // Use a cost-friendly reasoning model; you can bump to gpt-4.1 if desired.
-    const model = "gpt-4.1-mini";
-
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: system },
-          {
-            role: "user",
-            content:
-              "Extract quantities from this plan text. If dimensions appear, convert to quantities where reasonable.\n\n" +
-              text,
-          },
-        ],
-      }),
-    });
-
-    if (!resp.ok) {
-      const e = await resp.text();
-      throw new Error(`OpenAI API failed: ${e}`);
-    }
-
-    const data = await resp.json();
-    const rawText = data?.choices?.[0]?.message?.content ?? "";
-    const parsed = extractJSON(rawText);
-
-    return {
-      source: "openai",
-      items: coerceItems(parsed?.items),
-      summary: String(parsed?.summary ?? "Extraction complete."),
-      confidence: Math.max(0, Math.min(1, Number(parsed?.confidence ?? 0.6))),
-    };
-  } catch (err: any) {
-    return {
-      source: "openai",
-      summary: `OpenAI error: ${err?.message || String(err)}`,
-      confidence: 0,
-      items: [],
-    };
+  console.log("[OpenAI] Extracting text from PDF...");
+  const text = await extractTextFromPDF(pdfBytes);
+  
+  if (!text || text.length < 100) {
+    throw new Error("PDF appears to be empty or image-based (no extractable text)");
   }
+
+  console.log(`[OpenAI] Extracted ${text.length} characters`);
+
+  const system = buildSystemPrompt();
+  const model = "gpt-4o-mini"; // FIXED: Use correct model name
+
+  console.log(`[OpenAI] Calling ${model}...`);
+
+  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content:
+            "Extract all measurable quantities from this construction plan text:\n\n" +
+            text,
+        },
+      ],
+    }),
+  });
+
+  if (!resp.ok) {
+    const errorText = await resp.text();
+    console.error("[OpenAI] API Error:", errorText);
+    throw new Error(`OpenAI API failed (${resp.status}): ${errorText}`);
+  }
+
+  const data = await resp.json();
+  const rawText = data?.choices?.[0]?.message?.content ?? "";
+
+  console.log("[OpenAI] Parsing response...");
+  const parsed = extractJSON(rawText);
+  const items = coerceItems(parsed?.items);
+
+  console.log(`[OpenAI] Successfully extracted ${items.length} items`);
+
+  return {
+    source: "openai",
+    items,
+    summary: String(parsed?.summary ?? "Extraction complete."),
+    confidence: Math.max(0, Math.min(1, Number(parsed?.confidence ?? 0.6))),
+  };
 }
 
 
